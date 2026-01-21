@@ -23,7 +23,8 @@ const createBot = (): void => {
 	bot = Mineflayer.createBot({
 		host: CONFIG.client.host,
 		port: +CONFIG.client.port,
-		username: CONFIG.client.username
+		username: CONFIG.client.username,
+		version; CONFIG.client.version
 	} as const);
 
 
