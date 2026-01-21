@@ -1,65 +1,51 @@
 import * as mineflayer from 'mineflayer'
 import type { Bot, ControlState } from 'mineflayer'
+
 import { sleep, getRandom } from './utils.js'
 import CONFIG from '../config.json' assert { type: 'json' }
 
 let bot: Bot | null = null
 let loop: NodeJS.Timeout | null = null
 let reconnecting = false
-let retryDelay = CONFIG.action.retryDelay // exponential backoff
 
-async function createBot(): Promise<void> {
+function createBot(): void {
   reconnecting = false
 
-  try {
-    console.log(`Connecting to ${CONFIG.client.host}:${CONFIG.client.port}...`)
-    bot = mineflayer.createBot({
-      host: CONFIG.client.host,
-      port: Number(CONFIG.client.port),
-      username: CONFIG.client.username,
-      version: CONFIG.client.version,
-      connectTimeout: 60000,
-      keepAlive: true
-    })
-  } catch (err) {
-    console.error('Failed to create bot:', err)
-    scheduleReconnect()
-    return
-  }
+  bot = mineflayer.createBot({
+    host: CONFIG.client.host,
+    port: Number(CONFIG.client.port),
+    username: CONFIG.client.username,
+    version: CONFIG.client.version
+  })
 
   bot.on('login', () => {
-    retryDelay = CONFIG.action.retryDelay
     console.log(`AFKBot logged in as ${bot!.username}`)
   })
 
   bot.on('spawn', () => {
-    console.log('AFKBot spawned in world')
     startActions()
   })
 
   bot.on('kicked', (reason) => {
-    console.error('Kicked from server:', reason)
+    console.error('Kicked:', reason)
   })
 
   bot.on('end', () => {
-    console.log('Bot connection ended')
     scheduleReconnect()
   })
 
   bot.on('error', (err) => {
-    if (err.message.includes('timed out') || err.code === 'ETIMEDOUT') {
-      console.warn('Server timeout detected, will retry...')
-    } else {
-      console.error('Bot error:', err)
-    }
+    console.error('Bot error:', err)
   })
 }
 
 function startActions(): void {
   if (!bot) return
+
   const activeBot = bot
 
   loop = setInterval(async () => {
+    // Stop if bot changed or disconnected
     if (!activeBot || activeBot !== bot) return
     if (!activeBot.player) return
 
@@ -71,6 +57,7 @@ function startActions(): void {
 
     await sleep(CONFIG.action.holdDuration)
 
+    // Bot may have disconnected while sleeping
     if (activeBot !== bot) return
     activeBot.clearControlStates()
   }, CONFIG.action.holdDuration)
@@ -93,14 +80,12 @@ async function scheduleReconnect(): Promise<void> {
   if (reconnecting) return
   reconnecting = true
 
-  console.log(`Reconnecting in ${retryDelay / 1000}s...`)
+  console.log(`Reconnecting in ${CONFIG.action.retryDelay / 1000}s...`)
   cleanup()
-  await sleep(retryDelay)
-
-  retryDelay = Math.min(retryDelay * 2, 120000) // exponential backoff max 2 min
-  await createBot()
+  await sleep(CONFIG.action.retryDelay)
+  createBot()
 }
 
-export default async function initBot(): Promise<void> {
-  await createBot()
+export default function initBot(): void {
+  createBot()
 }
