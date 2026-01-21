@@ -2,36 +2,14 @@ import * as mineflayer from 'mineflayer'
 import type { Bot, ControlState } from 'mineflayer'
 import { sleep, getRandom } from './utils.js'
 import CONFIG from '../config.json' assert { type: 'json' }
-import { ping } from 'minecraft-server-util'
 
 let bot: Bot | null = null
 let loop: NodeJS.Timeout | null = null
 let reconnecting = false
 let retryDelay = CONFIG.action.retryDelay // exponential backoff
 
-// Check if Minecraft server is online using proper Minecraft ping
-async function isServerOnline(host: string, port: number): Promise<boolean> {
-  try {
-    await ping(host, Number(port), { timeout: 5000 })
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function waitForServer(): Promise<void> {
-  console.log(`Checking if server ${CONFIG.client.host}:${CONFIG.client.port} is online...`)
-  while (!(await isServerOnline(CONFIG.client.host, Number(CONFIG.client.port)))) {
-    console.log('Server not online yet, retrying in 10s...')
-    await sleep(10000)
-  }
-  console.log('Server is online! Attempting to connect...')
-}
-
 async function createBot(): Promise<void> {
   reconnecting = false
-
-  await waitForServer() // wait until server accepts connections
 
   try {
     console.log(`Connecting to ${CONFIG.client.host}:${CONFIG.client.port}...`)
