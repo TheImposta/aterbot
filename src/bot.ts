@@ -1,25 +1,59 @@
 import * as mineflayer from 'mineflayer'
 import type { Bot, ControlState } from 'mineflayer'
-
 import { sleep, getRandom } from './utils.js'
 import CONFIG from '../config.json' assert { type: 'json' }
+import net from 'net'
 
 let bot: Bot | null = null
 let loop: NodeJS.Timeout | null = null
 let reconnecting = false
-let retryDelay = CONFIG.action.retryDelay // for exponential backoff
+let retryDelay = CONFIG.action.retryDelay // exponential backoff
+
+// Helper: check if Minecraft server is online
+async function isServerOnline(host: string, port: number, timeout = 5000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket()
+    let done = false
+
+    socket.setTimeout(timeout)
+    socket.on('connect', () => {
+      done = true
+      socket.destroy()
+      resolve(true)
+    })
+    socket.on('error', () => {
+      if (!done) resolve(false)
+    })
+    socket.on('timeout', () => {
+      if (!done) resolve(false)
+    })
+
+    socket.connect(port, host)
+  })
+}
+
+async function waitForServer(): Promise<void> {
+  console.log(`Checking if server ${CONFIG.client.host}:${CONFIG.client.port} is online...`)
+  while (!(await isServerOnline(CONFIG.client.host, Number(CONFIG.client.port)))) {
+    console.log('Server not online yet, retrying in 10s...')
+    await sleep(10000)
+  }
+  console.log('Server is online! Attempting to connect...')
+}
 
 async function createBot(): Promise<void> {
   reconnecting = false
 
+  await waitForServer() // wait until server accepts connections
+
   try {
-    console.log(`Attempting to connect to ${CONFIG.client.host}:${CONFIG.client.port}...`)
+    console.log(`Connecting to ${CONFIG.client.host}:${CONFIG.client.port}...`)
     bot = mineflayer.createBot({
       host: CONFIG.client.host,
       port: Number(CONFIG.client.port),
       username: CONFIG.client.username,
       version: CONFIG.client.version,
-      connectTimeout: 60000, // 60 seconds
+      connectTimeout: 60000,
       keepAlive: true
     })
   } catch (err) {
@@ -98,8 +132,7 @@ async function scheduleReconnect(): Promise<void> {
   cleanup()
   await sleep(retryDelay)
 
-  // Exponential backoff
-  retryDelay = Math.min(retryDelay * 2, 120000)
+  retryDelay = Math.min(retryDelay * 2, 120000) // exponential backoff max 2 min
   await createBot()
 }
 
