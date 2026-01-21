@@ -9,29 +9,37 @@ let loop: NodeJS.Timeout | null = null
 let reconnecting = false
 let retryDelay = CONFIG.action.retryDelay // for exponential backoff
 
-function createBot(): void {
+async function createBot(): Promise<void> {
   reconnecting = false
 
-  bot = mineflayer.createBot({
-    host: CONFIG.client.host,
-    port: Number(CONFIG.client.port),
-    username: CONFIG.client.username,
-    version: CONFIG.client.version,
-    connectTimeout: 60000, // increase timeout to 60s
-    keepAlive: true
-  })
+  try {
+    console.log(`Attempting to connect to ${CONFIG.client.host}:${CONFIG.client.port}...`)
+    bot = mineflayer.createBot({
+      host: CONFIG.client.host,
+      port: Number(CONFIG.client.port),
+      username: CONFIG.client.username,
+      version: CONFIG.client.version,
+      connectTimeout: 60000, // 60 seconds
+      keepAlive: true
+    })
+  } catch (err) {
+    console.error('Failed to create bot:', err)
+    scheduleReconnect()
+    return
+  }
 
   bot.on('login', () => {
-    retryDelay = CONFIG.action.retryDelay // reset backoff on successful login
+    retryDelay = CONFIG.action.retryDelay
     console.log(`AFKBot logged in as ${bot!.username}`)
   })
 
   bot.on('spawn', () => {
+    console.log('AFKBot spawned in world')
     startActions()
   })
 
   bot.on('kicked', (reason) => {
-    console.error('Kicked:', reason)
+    console.error('Kicked from server:', reason)
   })
 
   bot.on('end', () => {
@@ -50,7 +58,6 @@ function createBot(): void {
 
 function startActions(): void {
   if (!bot) return
-
   const activeBot = bot
 
   loop = setInterval(async () => {
@@ -91,11 +98,11 @@ async function scheduleReconnect(): Promise<void> {
   cleanup()
   await sleep(retryDelay)
 
-  // Exponential backoff to avoid spamming free server
-  retryDelay = Math.min(retryDelay * 2, 120000) // max 2 minutes
-  createBot()
+  // Exponential backoff
+  retryDelay = Math.min(retryDelay * 2, 120000)
+  await createBot()
 }
 
-export default function initBot(): void {
-  createBot()
+export default async function initBot(): Promise<void> {
+  await createBot()
 }
