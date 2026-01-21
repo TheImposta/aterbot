@@ -1,74 +1,71 @@
-import Mineflayer from 'mineflayer';
-import { sleep, getRandom } from "./utils.ts";
-import CONFIG from "../config.json" assert {type: 'json'};
+let bot: Mineflayer.Bot | null = null;
+let loop: NodeJS.Timeout | null = null;
+let reconnecting = false;
 
-let loop: NodeJS.Timeout;
-let bot: Mineflayer.Bot;
+function createBot(): void {
+  reconnecting = false;
 
-const disconnect = (): void => {
-	clearInterval(loop);
-	bot?.quit?.();
-	bot?.end?.();
-};
-const reconnect = async (): Promise<void> => {
-	console.log(`Trying to reconnect in ${CONFIG.action.retryDelay / 1000} seconds...\n`);
+  bot = Mineflayer.createBot({
+    host: CONFIG.client.host,
+    port: Number(CONFIG.client.port),
+    username: CONFIG.client.username,
+    version: CONFIG.client.version // IMPORTANT: set this explicitly
+  });
 
-	disconnect();
-	await sleep(CONFIG.action.retryDelay);
-	createBot();
-	return;
-};
+  bot.on('login', () => {
+    console.log(`AFKBot logged in as ${bot!.username}`);
+  });
 
-const createBot = (): void => {
-	bot = Mineflayer.createBot({
-		host: CONFIG.client.host,
-		port: +CONFIG.client.port,
-		username: CONFIG.client.username
-	} as const);
+  bot.on('spawn', () => {
+    startActions();
+  });
 
+  bot.on('kicked', (reason) => {
+    console.error('Kicked:', reason);
+  });
 
-	bot.once('error', error => {
-		console.error(`AFKBot got an error: ${error}`);
-	});
-	bot.once('kicked', rawResponse => {
-		console.error(`\n\nAFKbot is disconnected: ${rawResponse}`);
-	});
-	bot.once('end', () => void reconnect());
+  bot.on('end', () => {
+    scheduleReconnect();
+  });
 
-	bot.once('spawn', () => {
-		const changePos = async (): Promise<void> => {
-			const lastAction = getRandom(CONFIG.action.commands) as Mineflayer.ControlState;
-			const halfChance: boolean = Math.random() < 0.5? true : false; // 50% chance to sprint
+  bot.on('error', (err) => {
+    console.error('Bot error:', err);
+  });
+}
 
-			console.debug(`${lastAction}${halfChance? " with sprinting" : ''}`);
+function startActions(): void {
+  if (!bot) return;
 
-			bot.setControlState('sprint', halfChance);
-			bot.setControlState(lastAction, true); // starts the selected random action
+  loop = setInterval(async () => {
+    const action = getRandom(CONFIG.action.commands) as Mineflayer.ControlState;
+    const sprint = Math.random() < 0.5;
 
-			await sleep(CONFIG.action.holdDuration);
-			bot.clearControlStates();
-			return;
-		};
-		const changeView = async (): Promise<void> => {
-			const yaw = (Math.random() * Math.PI) - (0.5 * Math.PI),
-				pitch = (Math.random() * Math.PI) - (0.5 * Math.PI);
-			
-			await bot.look(yaw, pitch, false);
-			return;
-		};
-		
-		loop = setInterval(() => {
-			changeView();
-			changePos();
-		}, CONFIG.action.holdDuration);
-	});
-	bot.once('login', () => {
-		console.log(`AFKBot logged in ${bot.username}\n\n`);
-	});
-};
+    bot!.setControlState('sprint', sprint);
+    bot!.setControlState(action, true);
 
+    await sleep(CONFIG.action.holdDuration);
+    bot!.clearControlStates();
+  }, CONFIG.action.holdDuration);
+}
 
+function cleanup(): void {
+  if (loop) clearInterval(loop);
+  loop = null;
 
-export default (): void => {
-	createBot();
-};
+  try {
+    bot?.removeAllListeners();
+    bot?.end();
+  } catch {}
+}
+
+async function scheduleReconnect(): Promise<void> {
+  if (reconnecting) return;
+  reconnecting = true;
+
+  console.log(`Reconnecting in ${CONFIG.action.retryDelay / 1000}s...`);
+  cleanup();
+  await sleep(CONFIG.action.retryDelay);
+  createBot();
+}
+
+export default () => createBot();
