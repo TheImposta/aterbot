@@ -1,71 +1,82 @@
-let bot: Mineflayer.Bot | null = null;
-let loop: NodeJS.Timeout | null = null;
-let reconnecting = false;
+import * as mineflayer from 'mineflayer'
+import type { Bot, ControlState } from 'mineflayer'
+
+import { sleep, getRandom } from './utils.js'
+import CONFIG from '../config.json' assert { type: 'json' }
+
+let bot: Bot | null = null
+let loop: NodeJS.Timeout | null = null
+let reconnecting = false
 
 function createBot(): void {
-  reconnecting = false;
+  reconnecting = false
 
-  bot = Mineflayer.createBot({
+  bot = mineflayer.createBot({
     host: CONFIG.client.host,
     port: Number(CONFIG.client.port),
     username: CONFIG.client.username,
-    version: CONFIG.client.version // IMPORTANT: set this explicitly
-  });
+    version: CONFIG.client.version
+  })
 
   bot.on('login', () => {
-    console.log(`AFKBot logged in as ${bot!.username}`);
-  });
+    console.log(`AFKBot logged in as ${bot!.username}`)
+  })
 
   bot.on('spawn', () => {
-    startActions();
-  });
+    startActions()
+  })
 
   bot.on('kicked', (reason) => {
-    console.error('Kicked:', reason);
-  });
+    console.error('Kicked:', reason)
+  })
 
   bot.on('end', () => {
-    scheduleReconnect();
-  });
+    scheduleReconnect()
+  })
 
   bot.on('error', (err) => {
-    console.error('Bot error:', err);
-  });
+    console.error('Bot error:', err)
+  })
 }
 
 function startActions(): void {
-  if (!bot) return;
+  if (!bot) return
 
   loop = setInterval(async () => {
-    const action = getRandom(CONFIG.action.commands) as Mineflayer.ControlState;
-    const sprint = Math.random() < 0.5;
+    const action = getRandom(CONFIG.action.commands) as ControlState
+    const sprint = Math.random() < 0.5
 
-    bot!.setControlState('sprint', sprint);
-    bot!.setControlState(action, true);
+    bot!.setControlState('sprint', sprint)
+    bot!.setControlState(action, true)
 
-    await sleep(CONFIG.action.holdDuration);
-    bot!.clearControlStates();
-  }, CONFIG.action.holdDuration);
+    await sleep(CONFIG.action.holdDuration)
+    bot!.clearControlStates()
+  }, CONFIG.action.holdDuration)
 }
 
 function cleanup(): void {
-  if (loop) clearInterval(loop);
-  loop = null;
+  if (loop) {
+    clearInterval(loop)
+    loop = null
+  }
 
-  try {
-    bot?.removeAllListeners();
-    bot?.end();
-  } catch {}
+  if (bot) {
+    bot.removeAllListeners()
+    bot.end()
+    bot = null
+  }
 }
 
 async function scheduleReconnect(): Promise<void> {
-  if (reconnecting) return;
-  reconnecting = true;
+  if (reconnecting) return
+  reconnecting = true
 
-  console.log(`Reconnecting in ${CONFIG.action.retryDelay / 1000}s...`);
-  cleanup();
-  await sleep(CONFIG.action.retryDelay);
-  createBot();
+  console.log(`Reconnecting in ${CONFIG.action.retryDelay / 1000}s...`)
+  cleanup()
+  await sleep(CONFIG.action.retryDelay)
+  createBot()
 }
 
-export default () => createBot();
+export default function initBot(): void {
+  createBot()
+}
